@@ -1,0 +1,18 @@
+{
+  "type": "module",
+  "dependencies": {
+    "@langchain/community": "^0.3.25",
+    "@langchain/openai": "^0.3.17",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "langchain": "^0.3.11",
+    "nodemon": "^3.1.9",
+    "openai": "^4.78.1",
+    "pdf-parse": "^1.1.1"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon index.js"
+  }
+}
