@@ -28,7 +28,14 @@ Example Question:
 Q: "What temperature should ice be stored at?"
 A: Ice sculptures should be stored at -10°F (-23°C) for optimal preservation.
 
-Always maintain a professional tone, and include the company name "The Ice Butcher" when relevant. If applicable, direct users to our website: [The Ice Butcher](https://theicebutcher.com/).`
+- If providing URLs, Always format them without brackets, like this: "Display Name: URL".
+    
+    Example:
+    Q: "Can you share the AR link for the seafood table?"
+    A: Here is the AR link for the seafood table:
+       42" Seafood Table: https://nexreality.io/ice_sculptures/06/
+
+Always maintain a professional tone, and include the company name "The Ice Butcher" when relevant. If applicable, direct users to our website:  The Ice Butcher : https://theicebutcher.com/`
 };
 
 
