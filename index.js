@@ -15,20 +15,22 @@ const pdf = './faqs.pdf';
 let vectorStore = null;
 
 const customPrompt = {
-    temperature: 0.5, // Balanced between accuracy and creativity
-    systemPrompt: `You are an expert in ice sculptures and ice butchery with decades of experience. Always provide short and brief answers to the user's questions.
+    temperature: 0.5, // Balanced approach for accuracy and creativity
+    systemPrompt: `You are an expert in ice sculptures and ice butchery with decades of professional experience. Always provide clear, concise, and expert-level answers to the user's questions.
 
-                  RESPONSE GUIDELINES:
-                  - Provide a clear and concise answer in no more than 2 sentences.
-                  - Use straightforward and professional language, focusing only on the specific question asked.
-                  - Avoid unnecessary details, background information, or context references.
+RESPONSE GUIDELINES:
+1. Provide precise answers limited to 2 sentences.
+2. Use professional and straightforward language, focusing only on the specific question asked.
+3. Avoid unnecessary details, background explanations, or unrelated context.
+4. Highlight the expertise of "The Ice Butcher" as a leading company in the industry.
 
-                  Example:
-                  Q: "What temperature should ice be stored at?"
-                  A: Ice sculptures should be stored at -10°F (-23°C) for optimal preservation.
+Example Question:
+Q: "What temperature should ice be stored at?"
+A: Ice sculptures should be stored at -10°F (-23°C) for optimal preservation.
 
-                  Always present us as the leading ice company, showcasing expertise and professionalism.`,
+Always maintain a professional tone, and include the company name "The Ice Butcher" when relevant. If applicable, direct users to our website: [The Ice Butcher](https://theicebutcher.com/).`
 };
+
 
 
 // Initialize PDF loader and processing
@@ -57,6 +59,12 @@ const initializePDF = async () => {
     }
 };
 
+// Helper function to format links as clickable
+const formatLinksAsHTML = (text) => {
+    const urlRegex = /(https?:\/\/[^\s]+)/g; // Regex to detect URLs
+    return text.replace(urlRegex, (url) => `<a href="${url}" target="_blank">${url}</a>`);
+};
+
 // Enhanced OpenAI response function with custom prompt
 const getOpenAIResponse = async (question) => {
     try {
@@ -74,9 +82,10 @@ const getOpenAIResponse = async (question) => {
                 }
             ]
         });
-        
+
+        const formattedContent = formatLinksAsHTML(response.choices[0].message.content);
         return {
-            content: response.choices[0].message.content,
+            content: formattedContent,
             source: 'OpenAI General Response'
         };
     } catch (error) {
@@ -84,6 +93,7 @@ const getOpenAIResponse = async (question) => {
         throw error;
     }
 };
+
 
 // Function to check if PDF results are relevant
 const isRelevantPDFContent = async (results, question) => {
@@ -113,24 +123,25 @@ const isRelevantPDFContent = async (results, question) => {
 };
 
 // Main API endpoint for chat
+// Enhanced PDF response processing
 app.post('/api/chat', async (req, res) => {
     const { message } = req.body;
-    
+
     if (!message) {
         return res.status(400).json({ error: 'Message is required' });
     }
-    
+
     try {
         // Initialize PDF store if not already done
         if (!vectorStore) {
             await initializePDF();
         }
-        
+
         let response;
         if (vectorStore) {
             const results = await vectorStore.similaritySearch(message, 2);
             const isRelevant = await isRelevantPDFContent(results, message);
-            
+
             if (isRelevant) {
                 response = await openai.chat.completions.create({
                     model: 'gpt-4o-mini',
@@ -146,29 +157,31 @@ app.post('/api/chat', async (req, res) => {
                         }
                     ]
                 });
-                
+
+                const formattedMessage = formatLinksAsHTML(response.choices[0].message.content);
                 return res.json({
-                    message: response.choices[0].message.content,
+                    message: formattedMessage,
                     source: 'PDF Knowledge Base'
                 });
             }
         }
-        
+
         // Fallback to general response
         const fallbackResponse = await getOpenAIResponse(message);
         res.json({
             message: fallbackResponse.content,
             source: fallbackResponse.source
         });
-        
+
     } catch (error) {
         console.error('Error processing chat:', error);
         res.status(500).json({ error: 'Internal server error' });
     }
 });
 
+
 // Start server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     initializePDF(); // Initialize PDF on server start
