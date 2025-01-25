@@ -6,6 +6,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
+    "fs": "^0.0.1-security",
     "langchain": "^0.3.11",
     "nodemon": "^3.1.9",
     "openai": "^4.78.1",
