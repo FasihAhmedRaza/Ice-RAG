@@ -1,183 +1,96 @@
-// server.js
 import express from 'express';
 import cors from 'cors';
 import { openai } from './open.js';
-import { MemoryVectorStore } from 'langchain/vectorstores/memory';
-import { OpenAIEmbeddings } from '@langchain/openai';
-import { CharacterTextSplitter } from 'langchain/text_splitter';
-import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
+import fs from 'fs';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const pdf = './faqs.pdf';
-let vectorStore = null;
+let faqData;
+try {
+  faqData = JSON.parse(fs.readFileSync('faq.json', 'utf8'));
+} catch (error) {
+  console.error('Error loading FAQ data:', error);
+  faqData = [];
+}
 
-const customPrompt = {
-    temperature: 0.5, // Balanced approach for accuracy and creativity
-    systemPrompt: `You are an expert in ice sculptures and ice butchery with decades of professional experience. Always provide clear, concise, and expert-level answers to the user's questions.
+const customPrompt = `
+You are an AI assistant for an ice sculpture company named "Ice Butcher".
+This is the information and question answers you need to assist users based on this data:
+${JSON.stringify(faqData, null, 2)}
+`;
 
-RESPONSE GUIDELINES:
-1. Provide precise answers limited to 2 sentences.
-2. Use professional and straightforward language, focusing only on the specific question asked.
-3. Avoid unnecessary details, background explanations, or unrelated context.
-4. Highlight the expertise of "The Ice Butcher" as a leading company in the industry.
-
-Example Question:
-Q: "What temperature should ice be stored at?"
-A: Ice sculptures should be stored at -10°F (-23°C) for optimal preservation.
-
-- If providing URLs, Always format them without brackets, like this: "Display Name: URL".
-    
-    Example:
-    Q: "Can you share the AR link for the seafood table?"
-    A: Here is the AR link for the seafood table:
-       42" Seafood Table: https://nexreality.io/ice_sculptures/06/
-
-Always maintain a professional tone, and include the company name "The Ice Butcher" when relevant. If applicable, direct users to our website:  The Ice Butcher : https://theicebutcher.com/`
-};
-
-
-
-// Initialize PDF loader and processing
-const initializePDF = async () => {
-    try {
-        const loader = new PDFLoader(pdf);
-        const loadedDoc = await loader.load();
-        
-        const splitter = new CharacterTextSplitter({
-            separator: '. ',
-            chunkSize: 1000,
-            chunkOverlap: 500
-        });
-        
-        const pdfDocs = await splitter.splitDocuments(loadedDoc);
-        vectorStore = await MemoryVectorStore.fromDocuments(
-            pdfDocs,
-            new OpenAIEmbeddings()
-        );
-        
-        console.log('PDF initialization complete');
-        return true;
-    } catch (error) {
-        console.error('Error loading PDF:', error);
-        return false;
-    }
-};
-
-// Helper function to format links as clickable
 const formatLinksAsHTML = (text) => {
-    const urlRegex = /(https?:\/\/[^\s]+)/g; // Regex to detect URLs
-    return text.replace(urlRegex, (url) => `<a href="${url}" target="_blank">${url}</a>`);
+    // Regex to detect URLs in text
+    const urlRegex = /(?:\[(.*?)\]\((https?:\/\/[^\s)]+)\))/g;
+
+    // Replace Markdown-style links with properly formatted HTML links or image tags
+    return text.replace(urlRegex, (match, linkText, url) => {
+        if (url.startsWith('https://nexreality.io/') && /\/\d{2}\/$/.test(url)) {
+            return `<a href="${url}" target="_blank" style="color: #007bff; text-decoration: none; font-size: 14px; font-weight: bold;">
+                        Click to view
+                    </a>`;
+        }
+        if (url.includes('tinyurl.com')) {
+            return `<div style="text-align: center; margin-top: 20px;">
+                        <img src="${url}" alt="Image" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); transition: transform 0.3s ease, box-shadow 0.3s ease;">
+                    </div>`;
+        }
+        return `<a href="${url}" target="_blank">${linkText}</a>`;
+    });
 };
 
-// Enhanced OpenAI response function with custom prompt
-const getOpenAIResponse = async (question) => {
+const sessions = {};  // Store active sessions
+
+// Main API endpoint for chat
+app.post('/api/chat', async (req, res) => {
+    const { message, sessionId } = req.body;  // Include sessionId in the request
+
+    if (!message) {
+        return res.status(400).json({ error: 'Message is required' });
+    }
+
+    // Initialize session if it doesn't exist
+    if (!sessions[sessionId]) {
+        sessions[sessionId] = {
+            history: []
+        };
+    }
+
     try {
+        // Add the current user message to session history
+        sessions[sessionId].history.push({ role: 'user', content: message });
+
+        // Combine customPrompt with the user's message and previous history
+        const conversationHistory = sessions[sessionId].history.map(
+            (entry) => `${entry.role}: ${entry.content}`
+        ).join('\n');
+
+        const fullPrompt = `${customPrompt}\nConversation History:\n${conversationHistory}\nAI:`;
+
+        // Request OpenAI to respond based on the full history
         const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             temperature: 0.5,
             messages: [
                 {
                     role: 'system',
-                    content: customPrompt.systemPrompt
-                },
-                {
-                    role: 'user',
-                    content: question
+                    content: fullPrompt
                 }
             ]
         });
 
-        const formattedContent = formatLinksAsHTML(response.choices[0].message.content);
-        return {
-            content: formattedContent,
-            source: 'OpenAI General Response'
-        };
-    } catch (error) {
-        console.error('Error getting OpenAI response:', error);
-        throw error;
-    }
-};
+        const gptResponse = response.choices[0].message.content;
 
+        // Add GPT's response to session history
+        sessions[sessionId].history.push({ role: 'assistant', content: gptResponse });
 
-// Function to check if PDF results are relevant
-const isRelevantPDFContent = async (results, question) => {
-    if (!results || results.length === 0) return false;
-    
-    try {
-        const response = await openai.chat.completions.create({
-            model: 'gpt-4o-mini',
-            temperature: 0,
-            messages: [
-                {
-                    role: 'system',
-                    content: 'Determine if the provided content contains relevant information to answer the question. Respond with only "true" or "false".'
-                },
-                {
-                    role: 'user',
-                    content: `Question: ${question}\nContent: ${results.map(r => r.pageContent).join('\n')}`
-                }
-            ]
-        });
-        
-        return response.choices[0].message.content.toLowerCase().includes('true');
-    } catch (error) {
-        console.error('Error checking relevance:', error);
-        return false;
-    }
-};
-
-// Main API endpoint for chat
-// Enhanced PDF response processing
-app.post('/api/chat', async (req, res) => {
-    const { message } = req.body;
-
-    if (!message) {
-        return res.status(400).json({ error: 'Message is required' });
-    }
-
-    try {
-        // Initialize PDF store if not already done
-        if (!vectorStore) {
-            await initializePDF();
-        }
-
-        let response;
-        if (vectorStore) {
-            const results = await vectorStore.similaritySearch(message, 2);
-            const isRelevant = await isRelevantPDFContent(results, message);
-
-            if (isRelevant) {
-                response = await openai.chat.completions.create({
-                    model: 'gpt-4o-mini',
-                    temperature: 0,
-                    messages: [
-                        {
-                            role: 'system',
-                            content: 'You are an AI assistant. Provide accurate answers based on the given context.'
-                        },
-                        {
-                            role: 'user',
-                            content: `Answer the following question using the provided context:\nQuestion: ${message}\nContext: ${results.map((r) => r.pageContent).join('\n')}`
-                        }
-                    ]
-                });
-
-                const formattedMessage = formatLinksAsHTML(response.choices[0].message.content);
-                return res.json({
-                    message: formattedMessage,
-                    source: 'PDF Knowledge Base'
-                });
-            }
-        }
-
-        // Fallback to general response
-        const fallbackResponse = await getOpenAIResponse(message);
-        res.json({
-            message: fallbackResponse.content,
-            source: fallbackResponse.source
+        // Format response and return
+        const formattedMessage = formatLinksAsHTML(gptResponse);
+        return res.json({
+            message: formattedMessage,
+            source: 'The Ice Butcher Expertise'
         });
 
     } catch (error) {
@@ -186,10 +99,20 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
+// Endpoint to end the session and clear history
+app.post('/api/end-session', (req, res) => {
+    const { sessionId } = req.body;
+
+    if (sessions[sessionId]) {
+        delete sessions[sessionId];  // Clear session history
+        return res.json({ message: 'Session ended and history cleared.' });
+    } else {
+        return res.status(400).json({ error: 'Session not found.' });
+    }
+});
 
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
-    initializePDF(); // Initialize PDF on server start
 });
